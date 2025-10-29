@@ -1,9 +1,9 @@
-# Instrumental Proximities
+# Body Proximities
 ## Gestural Augmentation of Subjective Intimacy
 
-An interactive art piece that creates visual connections between hands and face, generating ambient sounds based on movement. Built with p5.js, MediaPipe, and Tone.js.
+An interactive art piece that creates visual connections between hands, body, and face, generating ambient sounds based on proximity and movement. Built with p5.js, MediaPipe, and Tone.js.
 
-🎮 [Try the Live App](https://marlonbarrios.github.io/instrumentalproximities/)
+🎮 [Try the Live App](https://marlonbarrios.github.io/body_proximities/)
 
 <img width="898" alt="Screenshot 2025-03-09 at 1 40 45 PM" src="https://github.com/user-attachments/assets/bda3d171-bca3-4daa-a5a6-bbc6ff09a77d" />
 
@@ -12,20 +12,24 @@ An interactive art piece that creates visual connections between hands and face,
 ## Overview
 
 This project creates a real-time interactive experience where:
-- Facial features and hand movements are tracked
-- Visual connections are drawn between different points
-- Movement generates ambient sounds and music
+- Hand movements, body pose, and facial features are tracked simultaneously
+- Visual connections are drawn between hands and body parts (chest, hips, ankles)
+- Visual connections are drawn between hands and face points (eyes, mouth, nose)
+- Proximity to body and face generates ambient sounds and music
 - Everything responds fluidly to user interaction
 
 ## Visual Elements
 
+### Body Pose Tracking
+- Tracks key body reference points: chest (midpoint of shoulders), hip center (midpoint of hips), and ankles
+- Chest calculated from shoulder landmarks (left: 11, right: 12)
+- Hip center calculated from hip landmarks (left: 23, right: 24)
+- Ankles tracked individually (left: 27, right: 28)
 
-
-### Face Network
-- Subtle connections between key facial points
-- Points include: eyes, mouth corners, nose, cheeks, and forehead
+### Face Tracking
+- Tracks facial features including eyes, mouth, nose, and face outline
+- Subtle network connections between key facial points
 - Delicate animated lines with wave patterns
-- Intensity changes based on distance between points
 - Soft particle effects at intersections
 
 ### Hand Connections
@@ -35,8 +39,15 @@ This project creates a real-time interactive experience where:
 - Interweaving paths with animated waves
 - Particle effects along the connections
 
+### Hand-to-Body Connections
+- Dynamic lines connect body parts (chest, hips, ankles) to hands
+- Connection intensity based on proximity
+- Complex wave patterns that respond to movement
+- Intensity increases as hands approach body parts
+- Multiple layers of visual effects based on proximity duration
+
 ### Hand-to-Face Connections
-- Dynamic lines connect facial points to finger tips
+- Dynamic lines connect facial points (eyes, mouth, nose, outline) to finger tips and wrists
 - Connection intensity based on proximity
 - Complex wave patterns that respond to movement
 - Subtle particle systems along connections
@@ -56,26 +67,27 @@ This project creates a real-time interactive experience where:
 - Lower notes when hand is down
 - Uses triangle waves for clarity
 
-### Mouth Interaction (Enhanced)
-- Opening triggers bright glowing points around mouth contour
-- Wider opening creates expanding ripple effects
-- Mouth corners emit particle streams when open
-- Intensity of glow directly maps to sound volume
-- Creates visual feedback for vocal cavity size
-
-### Bass Synth (Mouth-Driven)
-- Dramatic visual and sonic response to mouth opening
-- Real-time mapping of mouth shape to sound:
+### Body & Face Proximity Interaction
+- Proximity to body parts (chest, hips, ankles) triggers visual and sonic responses
+- Proximity to face points (eyes, mouth, nose) opens additional interaction layers
+- Combined proximity calculation blends body and face interactions
+- Real-time mapping of proximity to sound:
   ```javascript
-  // Mouth shape to sound mapping
-  const mouthOpenness = lowerLipY - upperLipY;
-  const bassNote = map(mouthOpenness, 0.05, 0.2, 36, 48);
-  const intensity = map(mouthOpenness, 0.05, 0.2, 0.2, 1.0);
+  // Body proximity to sound mapping
+  const bodyProximity = map(minDistanceToBody, 0, maxProximityDist, 1, 0);
+  const overallProximity = (bodyProximity + faceProximity) / 2;
+  const bassNote = map(proximityDuration, 0.3, 1.0, 36, 48);
   ```
-- Three levels of interaction:
-  1. Slight opening (0.05): Subtle bass tones, gentle glow
-  2. Medium opening (0.1): Stronger resonance, pulsing light
-  3. Wide opening (0.2): Deep bass, maximum visual intensity
+- Intensity levels:
+  1. Far from body/face (>400px): Minimal effects
+  2. Moderate proximity (200-400px): Subtle connections and sounds
+  3. Close proximity (<200px): Maximum visual intensity and deeper bass tones
+
+### Bass Synth (Proximity-Driven)
+- Triggered by proximity to body parts (chest, hips, ankles) or face
+- Combines both body and face proximity for richer interaction
+- Note pitch and intensity increase with proximity duration
+- Creates immersive sonic feedback for body awareness
 
 ### Hi-hat (Overall Movement)
 - Rhythmic element based on hand movement
@@ -145,7 +157,7 @@ This project creates a real-time interactive experience where:
    - Note duration: "2n" (half note)
    - Velocity scaling: 0.3 maximum
 
-3. **Bass Synth (Mouth Control)**
+3. **Bass Synth (Proximity Control)**
    ```javascript
    bassline = new Tone.MonoSynth({
      oscillator: {
@@ -171,9 +183,23 @@ This project creates a real-time interactive experience where:
    - Filter envelope for dynamic timbre
    - Note duration: "1n" (whole note)
 
+## Technical Implementation
+
+### MediaPipe Integration
+- **HandLandmarker**: Tracks 21 points per hand (2 hands)
+- **PoseLandmarker**: Tracks 33 body landmarks (chest, shoulders, hips, ankles, etc.)
+- **FaceLandmarker**: Tracks 468 facial landmarks (eyes, mouth, nose, face outline)
+- All landmarkers run simultaneously for multi-modal tracking
+
+### Proximity Calculation
+- Calculates minimum distance from hand finger tips to body reference points
+- Calculates minimum distance from hands to face points
+- Blends body and face proximity for unified interaction
+- Smooth interpolation of proximity values over time
+
 ## Performance & License
 
-**Instrumental Proximities** is used in the lecture performance **Duets in Latent Space**.
+**Body Proximities** extends the original **Instrumental Proximities** concept, expanding interactions to include full body awareness alongside facial gestures.
 
 ### MIT License
 **Copyright (c) 2024 Marlon Barrios Solano**
