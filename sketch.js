@@ -78,6 +78,12 @@ let lastDistances = {
   ankles: { left: 0, right: 0 }
 };
 
+// Sound volume control based on interaction
+let lastInteractionTime = 0;
+let soundVolume = 1.0; // Start at full volume
+const NO_INTERACTION_TIMEOUT = 5000; // 5 seconds in milliseconds
+let lastProximityValue = 0; // Track proximity changes
+
 
 /* - - Setup - - */
 function setup() {
@@ -110,95 +116,127 @@ function draw() {
   scale(-1, 1);
   noTint();
 
-  // Check if landmarks are available
-  if (
-    mediaPipe.handLandmarks[0] &&
-    mediaPipe.handLandmarks[1] &&
-    mediaPipe.poseLandmarks &&
-    mediaPipe.poseLandmarks[0]
-  ) {
-    // Set blend mode for additive light effects
-    blendMode(ADD);
-    
-    const poseLandmarks = mediaPipe.poseLandmarks[0];
-    const leftHand = mediaPipe.handLandmarks[0];
-    const rightHand = mediaPipe.handLandmarks[1];
-    const faceLandmarks = mediaPipe.faceLandmarks && mediaPipe.faceLandmarks[0] ? mediaPipe.faceLandmarks[0] : null;
-    
-    // Calculate body reference points
-    let chestX = 0, chestY = 0;
-    let hipCenterX = 0, hipCenterY = 0;
-    let leftAnkleX = 0, leftAnkleY = 0;
-    let rightAnkleX = 0, rightAnkleY = 0;
-    let leftHipX = 0, leftHipY = 0;
-    let rightHipX = 0, rightHipY = 0;
-    
-    // Chest: midpoint between shoulders (11 and 12)
-    if (poseLandmarks[11] && poseLandmarks[12]) {
-      chestX = (poseLandmarks[11].x + poseLandmarks[12].x) / 2;
-      chestY = (poseLandmarks[11].y + poseLandmarks[12].y) / 2;
-    }
-    
-    // Hip center: midpoint between hips (23 and 24)
-    if (poseLandmarks[23] && poseLandmarks[24]) {
-      hipCenterX = (poseLandmarks[23].x + poseLandmarks[24].x) / 2;
-      hipCenterY = (poseLandmarks[23].y + poseLandmarks[24].y) / 2;
-      leftHipX = poseLandmarks[23].x;
-      leftHipY = poseLandmarks[23].y;
-      rightHipX = poseLandmarks[24].x;
-      rightHipY = poseLandmarks[24].y;
-    }
-    
-    // Ankles (27 and 28)
-    if (poseLandmarks[27]) {
-      leftAnkleX = poseLandmarks[27].x;
-      leftAnkleY = poseLandmarks[27].y;
-    }
-    if (poseLandmarks[28]) {
-      rightAnkleX = poseLandmarks[28].x;
-      rightAnkleY = poseLandmarks[28].y;
-    }
+    // Check if landmarks are available
+    if (
+      mediaPipe.handLandmarks[0] &&
+      mediaPipe.handLandmarks[1] &&
+      mediaPipe.poseLandmarks &&
+      mediaPipe.poseLandmarks[0]
+    ) {
+      // Set blend mode for additive light effects
+      blendMode(ADD);
+      
+      const poseLandmarks = mediaPipe.poseLandmarks[0];
+      const leftHand = mediaPipe.handLandmarks[0];
+      const rightHand = mediaPipe.handLandmarks[1];
+      const faceLandmarks = mediaPipe.faceLandmarks && mediaPipe.faceLandmarks[0] ? mediaPipe.faceLandmarks[0] : null;
+      
+      // Define ALL pose landmarks (33 points total)
+      // MediaPipe Pose landmarks: 0-32
+      const allPoseIndices = [];
+      for (let i = 0; i < 33; i++) {
+        if (poseLandmarks[i]) {
+          allPoseIndices.push(i);
+        }
+      }
+      
+      // Define pose skeletal connections (body-to-body relationships)
+      const poseConnections = [
+        // Face/head connections
+        [0, 1], [0, 2], [0, 5], [2, 5],
+        // Upper body - shoulders to elbows to wrists
+        [11, 13], [13, 15], [12, 14], [14, 16],
+        // Shoulders to hips
+        [11, 23], [12, 24],
+        // Hips to knees to ankles
+        [23, 25], [25, 27], [24, 26], [26, 28],
+        // Ankles to heels to feet
+        [27, 29], [28, 30], [27, 31], [28, 32],
+        // Cross connections
+        [11, 12], [23, 24], // Shoulders and hips
+        [15, 19], [15, 21], [16, 20], [16, 22], // Wrists to hand landmarks
+        // Additional skeletal connections
+        [0, 11], [0, 12], // Head to shoulders
+        [11, 23], [12, 24], // Shoulders to hips
+        [25, 27], [26, 28], // Knees to ankles
+      ];
+      
+      // Calculate body reference points (including all 33 landmarks)
+      let chestX = 0, chestY = 0;
+      let hipCenterX = 0, hipCenterY = 0;
+      let leftAnkleX = 0, leftAnkleY = 0;
+      let rightAnkleX = 0, rightAnkleY = 0;
+      let leftHipX = 0, leftHipY = 0;
+      let rightHipX = 0, rightHipY = 0;
+      
+      // Chest: midpoint between shoulders (11 and 12)
+      if (poseLandmarks[11] && poseLandmarks[12]) {
+        chestX = (poseLandmarks[11].x + poseLandmarks[12].x) / 2;
+        chestY = (poseLandmarks[11].y + poseLandmarks[12].y) / 2;
+      }
+      
+      // Hip center: midpoint between hips (23 and 24)
+      if (poseLandmarks[23] && poseLandmarks[24]) {
+        hipCenterX = (poseLandmarks[23].x + poseLandmarks[24].x) / 2;
+        hipCenterY = (poseLandmarks[23].y + poseLandmarks[24].y) / 2;
+        leftHipX = poseLandmarks[23].x;
+        leftHipY = poseLandmarks[23].y;
+        rightHipX = poseLandmarks[24].x;
+        rightHipY = poseLandmarks[24].y;
+      }
+      
+      // Calculate body center - average of key body points
+      let bodyCenterX = 0, bodyCenterY = 0;
+      let bodyCenterCount = 0;
+      const bodyCenterPoints = [11, 12, 23, 24, 0]; // Shoulders, hips, nose
+      for (let idx of bodyCenterPoints) {
+        if (poseLandmarks[idx]) {
+          bodyCenterX += poseLandmarks[idx].x;
+          bodyCenterY += poseLandmarks[idx].y;
+          bodyCenterCount++;
+        }
+      }
+      if (bodyCenterCount > 0) {
+        bodyCenterX /= bodyCenterCount;
+        bodyCenterY /= bodyCenterCount;
+      }
+      
+      // Ankles (27 and 28)
+      if (poseLandmarks[27]) {
+        leftAnkleX = poseLandmarks[27].x;
+        leftAnkleY = poseLandmarks[27].y;
+      }
+      if (poseLandmarks[28]) {
+        rightAnkleX = poseLandmarks[28].x;
+        rightAnkleY = poseLandmarks[28].y;
+      }
     
     // Calculate distances from hands to body parts and create visual effects
     let minDistanceToBody = Infinity;
     let bodyProximity = 0;
     
-    // Calculate minimum distance from hands to any body part
+    // Use ALL hand points (0-20, not just fingertips)
+    const allHandIndices = [];
+    for (let i = 0; i < 21; i++) {
+      allHandIndices.push(i);
+    }
+    
+    // Also keep finger tips for special connections
     const fingerTips = [4, 8, 12, 16, 20];
-    for (let hand of [leftHand, rightHand]) {
-      if (!hand) continue;
-      for (let tipIndex of fingerTips) {
-        if (!hand[tipIndex]) continue;
-        let handX = map(hand[tipIndex].x, 1, 0, 0, capture.scaledWidth);
-        let handY = map(hand[tipIndex].y, 0, 1, 0, capture.scaledHeight);
-        
-        // Check distance to chest
-        if (chestX !== 0 || chestY !== 0) {
-          let chestScreenX = map(chestX, 1, 0, 0, capture.scaledWidth);
-          let chestScreenY = map(chestY, 0, 1, 0, capture.scaledHeight);
-          let d = dist(handX, handY, chestScreenX, chestScreenY);
-          if (d < minDistanceToBody) minDistanceToBody = d;
-        }
-        
-        // Check distance to hips
-        if (hipCenterX !== 0 || hipCenterY !== 0) {
-          let hipScreenX = map(hipCenterX, 1, 0, 0, capture.scaledWidth);
-          let hipScreenY = map(hipCenterY, 0, 1, 0, capture.scaledHeight);
-          let d = dist(handX, handY, hipScreenX, hipScreenY);
-          if (d < minDistanceToBody) minDistanceToBody = d;
-        }
-        
-        // Check distance to ankles
-        if (leftAnkleX !== 0 || leftAnkleY !== 0) {
-          let ankleScreenX = map(leftAnkleX, 1, 0, 0, capture.scaledWidth);
-          let ankleScreenY = map(leftAnkleY, 0, 1, 0, capture.scaledHeight);
-          let d = dist(handX, handY, ankleScreenX, ankleScreenY);
-          if (d < minDistanceToBody) minDistanceToBody = d;
-        }
-        if (rightAnkleX !== 0 || rightAnkleY !== 0) {
-          let ankleScreenX = map(rightAnkleX, 1, 0, 0, capture.scaledWidth);
-          let ankleScreenY = map(rightAnkleY, 0, 1, 0, capture.scaledHeight);
-          let d = dist(handX, handY, ankleScreenX, ankleScreenY);
+    
+    // Calculate minimum distance from fingertips to body center (less complex)
+    if (bodyCenterCount > 0) {
+      let bodyCenterScreenX = map(bodyCenterX, 1, 0, 0, capture.scaledWidth);
+      let bodyCenterScreenY = map(bodyCenterY, 0, 1, 0, capture.scaledHeight);
+      
+      for (let hand of [leftHand, rightHand]) {
+        if (!hand) continue;
+        for (let tipIndex of fingerTips) {
+          if (!hand[tipIndex]) continue;
+          let handX = map(hand[tipIndex].x, 1, 0, 0, capture.scaledWidth);
+          let handY = map(hand[tipIndex].y, 0, 1, 0, capture.scaledHeight);
+          
+          let d = dist(handX, handY, bodyCenterScreenX, bodyCenterScreenY);
           if (d < minDistanceToBody) minDistanceToBody = d;
         }
       }
@@ -212,113 +250,207 @@ function draw() {
     proximityDuration = lerp(proximityDuration, bodyProximity, 0.1);
     maxComplexity = map(proximityDuration, 0, 1, 1, 6);
 
-    // Connect hands to body parts with visual effects
-    if (proximityDuration > 0.1) {
-      // Body reference points for connection
-      const bodyPoints = [
-        { name: 'chest', x: chestX, y: chestY },
-        { name: 'hips', x: hipCenterX, y: hipCenterY },
-        { name: 'leftHip', x: leftHipX, y: leftHipY },
-        { name: 'rightHip', x: rightHipX, y: rightHipY },
-        { name: 'leftAnkle', x: leftAnkleX, y: leftAnkleY },
-        { name: 'rightAnkle', x: rightAnkleX, y: rightAnkleY }
-      ];
+    // Connect to body center - geometric radial connections (ALWAYS VISIBLE)
+    if (bodyCenterCount > 0) {
+      let bodyCenterScreenX = map(bodyCenterX, 1, 0, 0, capture.scaledWidth);
+      let bodyCenterScreenY = map(bodyCenterY, 0, 1, 0, capture.scaledHeight);
       
-      for (let bodyPoint of bodyPoints) {
-        if ((bodyPoint.x === 0 && bodyPoint.y === 0) || !bodyPoint.x || !bodyPoint.y) continue;
+      // Connect only fingertips to body center (less complex)
+      for (let hand of [leftHand, rightHand]) {
+        if (!hand) continue;
         
-        let bodyX = map(bodyPoint.x, 1, 0, 0, capture.scaledWidth);
-        let bodyY = map(bodyPoint.y, 0, 1, 0, capture.scaledHeight);
+        // Only use fingertips for simplicity
+        for (let tipIndex of fingerTips) {
+          if (!hand[tipIndex]) continue;
+          
+          let handX = map(hand[tipIndex].x, 1, 0, 0, capture.scaledWidth);
+          let handY = map(hand[tipIndex].y, 0, 1, 0, capture.scaledHeight);
+          
+          let d = dist(bodyCenterScreenX, bodyCenterScreenY, handX, handY);
+          let maxDist = 600; // Increased max distance to always show
+          
+          // Always draw lines, but vary thickness based on distance and proximity
+          let distanceFactor = map(d, 0, maxDist, 1, 0);
+          distanceFactor = constrain(distanceFactor, 0, 1);
+          
+          // Different thickness for different fingertips
+          let baseThickness = 0;
+          if (tipIndex === 4) baseThickness = 2.5; // Thumb - thickest
+          else if (tipIndex === 8) baseThickness = 2.0; // Index - medium-thick
+          else if (tipIndex === 20) baseThickness = 1.5; // Pinky - medium
+          else baseThickness = 1.8; // Other fingertips - medium-thin
+          
+          // Vary thickness based on distance and proximity
+          let lineThickness = baseThickness * (0.5 + distanceFactor * 0.5);
+          if (proximityDuration > 0.1) {
+            lineThickness *= (1 + proximityDuration * 0.5); // Thicker when close
+          }
+          
+          // Always visible but with varying opacity
+          let opacity = map(d, 0, maxDist, 200, 50); // Fade with distance
+          opacity = constrain(opacity, 50, 200); // Always visible, minimum 50
+          
+          // Geometric: Straight line to body center (always visible)
+          stroke(255, 255, 255, opacity);
+          strokeWeight(lineThickness);
+          line(bodyCenterScreenX, bodyCenterScreenY, handX, handY);
+          
+          // Geometric: Circle at body center (only when close)
+          if (proximityDuration > 0.1) {
+            noFill();
+            stroke(255, 255, 255, 100 * proximityDuration);
+            strokeWeight(2);
+            circle(bodyCenterScreenX, bodyCenterScreenY, d * 0.3);
+          }
+        }
+      }
+    }
+    
+    // Connect hand points to body parts with geometric lines - very limited
+    if (proximityDuration > 0.08) { // Changed threshold from 0.05 to 0.08
+      // Only connect to key body points to avoid freezing
+      const keyBodyPoints = [0, 11, 12, 23, 24]; // Nose, shoulders, hips only
+      
+      for (let poseIndex of keyBodyPoints) {
+        if (!poseLandmarks[poseIndex]) continue;
         
-        // Connect to both hands
+        let poseX = map(poseLandmarks[poseIndex].x, 1, 0, 0, capture.scaledWidth);
+        let poseY = map(poseLandmarks[poseIndex].y, 0, 1, 0, capture.scaledHeight);
+        
+        // Connect only fingertips to body (less complex)
         for (let hand of [leftHand, rightHand]) {
-          if (!hand || !hand[0]) continue;
+          if (!hand) continue;
           
-          let handX = map(hand[0].x, 1, 0, 0, capture.scaledWidth);
-          let handY = map(hand[0].y, 0, 1, 0, capture.scaledHeight);
-          
-          let d = dist(bodyX, bodyY, handX, handY);
-          let maxDist = 350 + (150 * proximityDuration);
-          
-          if (d < maxDist) {
-            let intensity = map(d, 0, maxDist, 1, 0);
-            intensity = pow(intensity * (0.5 + proximityDuration * 0.5), 0.4);
+          // Only use fingertips for simplicity
+          for (let tipIndex of fingerTips) {
+            if (!hand[tipIndex]) continue;
             
-            // Number of layers increases with complexity
-            let numLayers = floor(map(maxComplexity, 1, 6, 1, 3));
-            for (let k = 0; k < numLayers; k++) {
-              let alpha = map(k, 0, numLayers, 255 * intensity, 0);
-              stroke(255, 255, 255, alpha);
-              strokeWeight(0.8 + (0.2 * proximityDuration));
+            let handX = map(hand[tipIndex].x, 1, 0, 0, capture.scaledWidth);
+            let handY = map(hand[tipIndex].y, 0, 1, 0, capture.scaledHeight);
+            
+            let d = dist(poseX, poseY, handX, handY);
+            // Vary max distance based on hand point type - reduced to 50%
+            // Different distances for different body parts
+            let bodyPartDistance = 0;
+            if ([0, 1, 2, 5].includes(poseIndex)) bodyPartDistance = 180; // Head/face
+            else if ([11, 12, 13, 14, 15, 16].includes(poseIndex)) bodyPartDistance = 250; // Shoulders/arms
+            else if ([23, 24].includes(poseIndex)) bodyPartDistance = 280; // Hips
+            else bodyPartDistance = 220; // Other body parts
+            
+            let maxDist = bodyPartDistance * 0.6 + (50 * proximityDuration);
+            
+            if (d < maxDist) {
+              let intensity = map(d, 0, maxDist, 1, 0);
+              intensity = pow(intensity * (0.4 + proximityDuration * 0.4), 0.5);
               
-              // Wave complexity increases with duration
-              let numWaves = floor(map(maxComplexity, 1, 6, 1, 3));
-              beginShape();
-              noFill();
-              for (let t = 0; t <= 1; t += 0.05) {
-                let x = lerp(bodyX, handX, t);
-                let y = lerp(bodyY, handY, t);
-                
-                let totalWave = 0;
-                for (let w = 1; w <= numWaves; w++) {
-                  let time = frameCount * 0.1;
-                  totalWave += sin(t * PI * (2 * w) + time) * (2 + w) * intensity;
-                }
-                
-                vertex(x + totalWave, y + totalWave);
+              // Geometric: Simple straight line
+              stroke(255, 255, 255, 150 * intensity);
+              strokeWeight(1.5 * intensity);
+              line(poseX, poseY, handX, handY);
+              
+              // Geometric: Add small circle at connection point
+              if (intensity > 0.3) {
+                noStroke();
+                fill(255, 255, 255, 100 * intensity);
+                circle(handX, handY, 3 * intensity);
               }
-              endShape();
-            }
-            
-            // Particles increase with complexity
-            let particleChance = map(maxComplexity, 1, 6, 0.02, 0.08);
-            if (random() < particleChance * intensity) {
-              let t = random();
-              let x = lerp(bodyX, handX, t);
-              let y = lerp(bodyY, handY, t);
-              noStroke();
-              fill(255, 255, 255, 150 * intensity);
-              let size = random(0.8, 0.8 + proximityDuration);
-              circle(x + random(-1, 1), y + random(-1, 1), size);
             }
           }
         }
       }
     }
-
-    // Connect hands to face points
-    if (faceLandmarks) {
-      // Key face points for connections
-      const facePoints = [
-        // Eyes
-        33, 133, 157, 158, 159, 160, 161, 246,  // Left eye
-        362, 263, 386, 387, 388, 389, 390, 466,  // Right eye
-        // Mouth
-        61, 185, 40, 39, 37, 0, 267, 269, 270, 409,
-        // Nose
-        4, 6, 19, 20, 94, 125, 141, 235, 236, 3,
-        // Face outline
-        10, 338, 297, 332, 284, 251, 389,
-        152, 148, 176, 149, 150, 136, 172
+    
+    // Draw body-to-body connections (skeletal structure) - limited key connections only
+    if (proximityDuration > 0.15) {
+      // Only draw essential skeletal connections to avoid freezing
+      const essentialConnections = [
+        [11, 12], // Shoulders
+        [23, 24], // Hips
+        [11, 23], [12, 24], // Shoulder to hip
+        [0, 11], [0, 12] // Head to shoulders
       ];
       
-      // Calculate face proximity
+      for (let connection of essentialConnections) {
+        let [i, j] = connection;
+        if (!poseLandmarks[i] || !poseLandmarks[j]) continue;
+        
+        let x1 = map(poseLandmarks[i].x, 1, 0, 0, capture.scaledWidth);
+        let y1 = map(poseLandmarks[i].y, 0, 1, 0, capture.scaledHeight);
+        let x2 = map(poseLandmarks[j].x, 1, 0, 0, capture.scaledWidth);
+        let y2 = map(poseLandmarks[j].y, 0, 1, 0, capture.scaledHeight);
+        
+        let d = dist(x1, y1, x2, y2);
+        let maxDist = 500; // Allow longer connections for essential skeleton
+        
+        if (d < maxDist) {
+          let intensity = map(d, 0, maxDist, 0.8, 0.1);
+          intensity *= proximityDuration;
+          
+          // Geometric: Simple straight line for skeleton
+          stroke(255, 255, 255, 100 * intensity);
+          strokeWeight(1.2 * intensity);
+          line(x1, y1, x2, y2);
+        }
+      }
+    }
+
+    // Connect hands to face points with MANY more face landmarks
+    if (faceLandmarks) {
+      // Expanded face points - using many more landmarks for complex networks
+      const facePoints = [
+        // Left eye - complete eye region
+        33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246,
+        // Right eye - complete eye region
+        362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 385, 384, 398,
+        // Mouth - complete mouth region
+        61, 146, 91, 181, 84, 17, 314, 405, 320, 307, 375, 321, 308, 324, 318, 13,
+        78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308, 61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291,
+        // Nose - complete nose region
+        4, 6, 19, 20, 51, 48, 115, 131, 134, 102, 49, 220, 305, 290, 305, 4, 168, 8, 9, 10,
+        94, 125, 141, 235, 236, 3, 195, 197, 5, 51, 48, 220,
+        // Face outline - more complete outline
+        10, 151, 9, 337, 299, 333, 298, 301, 368, 264, 447, 366, 401, 435, 410, 454,
+        356, 389, 251, 284, 332, 297, 338, 10, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234,
+        127, 162, 21, 54, 103, 67, 109, 10,
+        // Cheeks and jawline
+        116, 117, 118, 119, 120, 121, 126, 142, 36, 205, 206, 207, 213, 192, 147, 187,
+        207, 216, 212, 202, 214, 192, 213, 147, 187, 116,
+        // Eyebrows
+        70, 63, 105, 66, 107, 55, 65, 52, 53, 46, 336, 296, 334, 293, 300, 276,
+        // Forehead
+        10, 151, 337, 299, 333, 298, 301, 9,
+        // Additional facial features
+        94, 2, 164, 393, 267, 269, 270, 321, 308, 375, 321, 308, 324, 318
+      ];
+      
+      // Remove duplicates and ensure valid indices
+      // Reduce to 50% by sampling every other point
+      const uniqueFacePoints = [...new Set(facePoints)]
+        .filter(idx => idx < faceLandmarks.length)
+        .filter((_, idx) => idx % 2 === 0); // Only keep every other face point
+      
+      // Calculate face proximity using fingertips only (less complex)
       let minDistanceToFace = Infinity;
-      for (let pointIndex of facePoints) {
+      for (let pointIndex of uniqueFacePoints) {
         if (!faceLandmarks[pointIndex]) continue;
         
         let faceX = map(faceLandmarks[pointIndex].x, 1, 0, 0, capture.scaledWidth);
         let faceY = map(faceLandmarks[pointIndex].y, 0, 1, 0, capture.scaledHeight);
         
         for (let hand of [leftHand, rightHand]) {
-          if (!hand || !hand[0]) continue;
+          if (!hand) continue;
           
-          let handX = map(hand[0].x, 1, 0, 0, capture.scaledWidth);
-          let handY = map(hand[0].y, 0, 1, 0, capture.scaledHeight);
-          
-          let d = dist(faceX, faceY, handX, handY);
-          if (d < minDistanceToFace) {
-            minDistanceToFace = d;
+          // Check distance to fingertips only (less complex)
+          for (let handIndex of fingerTips) {
+            if (!hand[handIndex]) continue;
+            
+            let handX = map(hand[handIndex].x, 1, 0, 0, capture.scaledWidth);
+            let handY = map(hand[handIndex].y, 0, 1, 0, capture.scaledHeight);
+            
+            let d = dist(faceX, faceY, handX, handY);
+            if (d < minDistanceToFace) {
+              minDistanceToFace = d;
+            }
           }
         }
       }
@@ -335,104 +467,125 @@ function draw() {
         proximityDuration = lerp(proximityDuration, overallProximity, 0.1);
       }
       
-      // Connect face points to hands
-      for (let pointIndex of facePoints) {
+      // Connect face points to hand points - very limited to avoid freezing
+      // Only sample a few key face points
+      const sampledFacePointsForHands = uniqueFacePoints.filter((_, idx) => idx % 5 === 0 || idx < 10);
+      
+      for (let pointIndex of sampledFacePointsForHands) {
         if (!faceLandmarks[pointIndex]) continue;
         
         let faceX = map(faceLandmarks[pointIndex].x, 1, 0, 0, capture.scaledWidth);
         let faceY = map(faceLandmarks[pointIndex].y, 0, 1, 0, capture.scaledHeight);
         
-        // Connect to both hands
+        // Connect to sampled hand points
         for (let hand of [leftHand, rightHand]) {
-          if (!hand || !hand[0]) continue;
+          if (!hand) continue;
           
-          // Connect to wrist and finger tips
-          for (let tipIndex of [0, ...fingerTips]) {
-            if (!hand[tipIndex]) continue;
+          // Only use fingertips (less complex)
+          for (let handIndex of fingerTips) {
+            if (!hand[handIndex]) continue;
             
-            let handX = map(hand[tipIndex].x, 1, 0, 0, capture.scaledWidth);
-            let handY = map(hand[tipIndex].y, 0, 1, 0, capture.scaledHeight);
+            let handX = map(hand[handIndex].x, 1, 0, 0, capture.scaledWidth);
+            let handY = map(hand[handIndex].y, 0, 1, 0, capture.scaledHeight);
             
             let d = dist(faceX, faceY, handX, handY);
-            let maxDist = 250;
+            // Different distances for different face regions and hand points
+            // Eyes/mouth closer, outline farther
+            let faceRegionDist = 0;
+            if (pointIndex >= 33 && pointIndex <= 466) { // Eye region
+              faceRegionDist = 200;
+            } else if ((pointIndex >= 61 && pointIndex <= 291) || (pointIndex >= 13 && pointIndex <= 17)) { // Mouth region
+              faceRegionDist = 220;
+            } else if (pointIndex >= 4 && pointIndex <= 195) { // Nose region
+              faceRegionDist = 240;
+            } else { // Other face regions
+              faceRegionDist = 260;
+            }
+            
+            let maxDist = fingerTips.includes(handIndex) ? 
+              faceRegionDist * 0.7 : 
+              faceRegionDist * 0.9;
             
             if (d < maxDist) {
               let intensity = map(d, 0, maxDist, 1, 0);
-              intensity = pow(intensity * (0.4 + faceProximity * 0.3), 0.5);
+              intensity = pow(intensity * (0.35 + faceProximity * 0.35), 0.55);
               
-              // Draw delicate lines with wave effect
-              for (let k = 0; k < 2; k++) {
-                let alpha = map(k, 0, 2, 60 * intensity, 0);
-                stroke(255, 255, 255, alpha);
-                strokeWeight(0.3 + (0.1 * (1-k)));
-                
-                // Subtle wave pattern
-                beginShape();
-                noFill();
-                for (let t = 0; t <= 1; t += 0.03) {
-                  let x = lerp(faceX, handX, t);
-                  let y = lerp(faceY, handY, t);
-                  
-                  let time = frameCount * 0.05;
-                  let wave1 = sin(t * PI * 4 + time) * intensity * 1.5;
-                  let wave2 = cos(t * PI * 6 + time * 0.7) * intensity;
-                  
-                  vertex(x + wave1, y + wave2);
-                }
-                endShape();
-              }
-              
-              // Subtle particles
-              if (random() < 0.04 * intensity) {
-                let t = random();
-                let x = lerp(faceX, handX, t);
-                let y = lerp(faceY, handY, t);
-                noStroke();
-                fill(255, 40 * intensity);
-                circle(x + random(-0.5, 0.5), y + random(-0.5, 0.5), 0.5);
-              }
+              // Geometric: Simple straight line
+              stroke(255, 255, 255, 120 * intensity);
+              strokeWeight(1.2 * intensity);
+              line(faceX, faceY, handX, handY);
             }
           }
         }
       }
       
-      // Create subtle network between key facial points
-      const networkPoints = [33, 133, 362, 263, 61, 291, 4, 168, 397, 10, 152, 70, 336];
-      for (let i = 0; i < networkPoints.length; i++) {
-        for (let j = i + 1; j < networkPoints.length; j++) {
-          if (!faceLandmarks[networkPoints[i]] || !faceLandmarks[networkPoints[j]]) continue;
+      // Connect face points to body points (face-to-body network) - very limited
+      if (proximityDuration > 0.2) { // Increased threshold to reduce calculations
+        // Only a few key face points
+        const sampledFacePointsForBody = uniqueFacePoints.filter((_, idx) => idx % 10 === 0 || idx < 5);
+        for (let facePointIndex of sampledFacePointsForBody) {
+          if (!faceLandmarks[facePointIndex]) continue;
           
-          let x1 = map(faceLandmarks[networkPoints[i]].x, 1, 0, 0, capture.scaledWidth);
-          let y1 = map(faceLandmarks[networkPoints[i]].y, 0, 1, 0, capture.scaledHeight);
-          let x2 = map(faceLandmarks[networkPoints[j]].x, 1, 0, 0, capture.scaledWidth);
-          let y2 = map(faceLandmarks[networkPoints[j]].y, 0, 1, 0, capture.scaledHeight);
+          let faceX = map(faceLandmarks[facePointIndex].x, 1, 0, 0, capture.scaledWidth);
+          let faceY = map(faceLandmarks[facePointIndex].y, 0, 1, 0, capture.scaledHeight);
+          
+          // Connect to key body points (head, shoulders, chest)
+          const keyBodyPoints = [0, 11, 12]; // Nose, left shoulder, right shoulder
+          for (let bodyIndex of keyBodyPoints) {
+            if (!poseLandmarks[bodyIndex]) continue;
+            
+            let bodyX = map(poseLandmarks[bodyIndex].x, 1, 0, 0, capture.scaledWidth);
+            let bodyY = map(poseLandmarks[bodyIndex].y, 0, 1, 0, capture.scaledHeight);
+            
+            let d = dist(faceX, faceY, bodyX, bodyY);
+            // Different distances for face-to-body connections
+            let maxDist = 0;
+            if (bodyIndex === 0) maxDist = 180; // Face to nose (closer)
+            else if ([11, 12].includes(bodyIndex)) maxDist = 250; // Face to shoulders
+            else maxDist = 220;
+            
+            if (d < maxDist) {
+              let intensity = map(d, 0, maxDist, 0.6, 0.1);
+              intensity *= (faceProximity + proximityDuration) * 0.5;
+              
+              // Geometric: Simple straight line
+              stroke(255, 255, 255, 80 * intensity);
+              strokeWeight(1.0 * intensity);
+              line(faceX, faceY, bodyX, bodyY);
+            }
+          }
+        }
+      }
+      
+      // Create simple network between facial points (face-to-face network) - very limited
+      // Only sample a few key points to avoid freezing
+      const faceNetworkPoints = uniqueFacePoints.filter((_, idx) => idx % 10 === 0 || idx < 5); // Very reduced sampling
+      
+      for (let i = 0; i < faceNetworkPoints.length; i++) {
+        for (let j = i + 1; j < faceNetworkPoints.length; j++) {
+          let pointI = faceNetworkPoints[i];
+          let pointJ = faceNetworkPoints[j];
+          if (!faceLandmarks[pointI] || !faceLandmarks[pointJ]) continue;
+          
+          let x1 = map(faceLandmarks[pointI].x, 1, 0, 0, capture.scaledWidth);
+          let y1 = map(faceLandmarks[pointI].y, 0, 1, 0, capture.scaledHeight);
+          let x2 = map(faceLandmarks[pointJ].x, 1, 0, 0, capture.scaledWidth);
+          let y2 = map(faceLandmarks[pointJ].y, 0, 1, 0, capture.scaledHeight);
           
           let d = dist(x1, y1, x2, y2);
-          let maxDist = 120;
+          // Different distances for face-to-face network - reduced to 50%
+          // Vary based on face region proximity
+          let maxDist = 60 + (faceProximity * 30); // Reduced from 100+50
           
           if (d < maxDist) {
-            let intensity = map(d, 0, maxDist, 1, 0);
-            intensity = pow(intensity, 1.5);
+            let intensity = map(d, 0, maxDist, 0.8, 0.1);
+            intensity = pow(intensity, 1.3);
+            intensity *= (0.3 + faceProximity * 0.4);
             
-            // Draw delicate lines
-            for (let k = 0; k < 1; k++) {
-              let alpha = map(k, 0, 1, 30 * intensity, 0);
-              stroke(255, 255, 255, alpha);
-              strokeWeight(0.2);
-              
-              beginShape();
-              noFill();
-              for (let t = 0; t <= 1; t += 0.05) {
-                let x = lerp(x1, x2, t);
-                let y = lerp(y1, y2, t);
-                
-                let time = frameCount * 0.02;
-                let wave = sin(t * PI * 2 + time) * intensity * 0.5;
-                
-                vertex(x + wave, y + wave);
-              }
-              endShape();
-            }
+            // Geometric: Simple straight line
+            stroke(255, 255, 255, 60 * intensity);
+            strokeWeight(0.8 * intensity);
+            line(x1, y1, x2, y2);
           }
         }
       }
@@ -502,126 +655,70 @@ function draw() {
     }
     */
 
-    // Draw finger tip points with glow
-    // fingerTips already declared above
+    // Draw ALL hand points with glow (fingertips brighter, other points dimmer)
     for (let hand of [leftHand, rightHand]) {
       if (!hand) continue;
       
-      for (let tipIndex of fingerTips) {
-        let tipX = map(hand[tipIndex].x, 1, 0, 0, capture.scaledWidth);
-        let tipY = map(hand[tipIndex].y, 0, 1, 0, capture.scaledHeight);
+      for (let handIndex of allHandIndices) {
+        if (!hand[handIndex]) continue;
+        
+        let pointX = map(hand[handIndex].x, 1, 0, 0, capture.scaledWidth);
+        let pointY = map(hand[handIndex].y, 0, 1, 0, capture.scaledHeight);
+        
+        // Fingertips get brighter treatment
+        let isFingerTip = fingerTips.includes(handIndex);
+        let pointSize = isFingerTip ? 3 : 1.5;
+        let glowSize = isFingerTip ? 15 : 8;
+        let coreAlpha = isFingerTip ? 200 : 120;
+        let glowAlpha = isFingerTip ? 100 : 50;
         
         // Bright core
         noStroke();
-        fill(255, 255, 255, 200);
-        circle(tipX, tipY, 3);
+        fill(255, 255, 255, coreAlpha);
+        circle(pointX, pointY, pointSize);
         
         // Glow effect
-        for (let size = 15; size > 0; size -= 3) {
-          fill(255, 255, 255, map(size, 15, 0, 0, 100));
-          circle(tipX, tipY, size);
+        for (let size = glowSize; size > 0; size -= 2) {
+          fill(255, 255, 255, map(size, glowSize, 0, 0, glowAlpha));
+          circle(pointX, pointY, size);
         }
       }
     }
 
     // After drawing finger tip points, before resetting blend mode
     
-    // Draw lines between finger tips
+    // Draw lines between hand points within each hand
     strokeWeight(0.5); // Much thinner lines
     
-    // Connect finger tips with complex glowing lines
-    for (let hand of [leftHand, rightHand]) {
-      if (!hand) continue;
-      
-      for (let i = 0; i < fingerTips.length; i++) {
-        for (let j = i + 1; j < fingerTips.length; j++) {
-          let x1 = map(hand[fingerTips[i]].x, 1, 0, 0, capture.scaledWidth);
-          let y1 = map(hand[fingerTips[i]].y, 0, 1, 0, capture.scaledHeight);
-          let x2 = map(hand[fingerTips[j]].x, 1, 0, 0, capture.scaledWidth);
-          let y2 = map(hand[fingerTips[j]].y, 0, 1, 0, capture.scaledHeight);
-          
-          let d = dist(x1, y1, x2, y2);
-          let maxDist = 200;
-          
-          if (d < maxDist) {
-            let intensity = map(d, 0, maxDist, 1, 0);
-            
-            // Create multiple layered complex lines
-            for (let k = 0; k < 4; k++) {
-              let alpha = map(k, 0, 4, 100 * intensity, 0);
-              stroke(255, 255, 255, alpha);
-              strokeWeight(0.3 + (0.2 * (3-k)));
-              
-              // Draw multiple overlapping waves
-              for (let offset = -1; offset <= 1; offset += 0.5) {
-                beginShape();
-                noFill();
-                for (let t = 0; t <= 1; t += 0.02) {
-                  let x = lerp(x1, x2, t);
-                  let y = lerp(y1, y2, t);
-                  
-                  // Complex wave pattern
-                  let wave1 = sin(t * PI * 3 + frameCount * 0.1) * 2 * intensity;
-                  let wave2 = cos(t * PI * 5 + frameCount * 0.08) * 1.5 * intensity;
-                  let wave3 = sin(t * PI * 7 + frameCount * 0.15) * intensity;
-                  
-                  vertex(x + wave1 + wave2 + wave3 + offset, 
-                        y + wave2 + wave3 + offset);
-                }
-                endShape();
-              }
-            }
-          }
-        }
-      }
-    }
+    // Skip within-hand connections to avoid freezing - too many calculations
     
-    // Connect corresponding finger tips between hands with complex patterns
-    if (leftHand && rightHand) {
+    // Connect hand points between hands - only fingertips
+    if (leftHand && rightHand && proximityDuration > 0.1) { // Added threshold
+      // Connect only fingertips between hands
       for (let tipIndex of fingerTips) {
+        if (!leftHand[tipIndex] || !rightHand[tipIndex]) continue;
+        
         let x1 = map(leftHand[tipIndex].x, 1, 0, 0, capture.scaledWidth);
         let y1 = map(leftHand[tipIndex].y, 0, 1, 0, capture.scaledHeight);
         let x2 = map(rightHand[tipIndex].x, 1, 0, 0, capture.scaledWidth);
         let y2 = map(rightHand[tipIndex].y, 0, 1, 0, capture.scaledHeight);
         
         let d = dist(x1, y1, x2, y2);
-        let maxDist = 250;
+        // Different distances for different fingertips
+        let maxDist = 0;
+        if (tipIndex === 4) maxDist = 200; // Thumbs
+        else if (tipIndex === 8) maxDist = 220; // Index fingers
+        else if (tipIndex === 20) maxDist = 210; // Pinkies
+        else maxDist = 215; // Other fingertips
         
         if (d < maxDist) {
           let intensity = map(d, 0, maxDist, 1, 0);
+          let handPointWeight = 1.5;
           
-          // Create multiple complex energy lines
-          for (let k = 0; k < 5; k++) {
-            let alpha = map(k, 0, 5, 150 * intensity, 0);
-            stroke(255, 255, 255, alpha);
-            strokeWeight(0.4 + (0.15 * (4-k)));
-            
-            // Multiple interweaving paths
-            for (let pathOffset = -2; pathOffset <= 2; pathOffset += 1) {
-              beginShape();
-              noFill();
-              for (let t = 0; t <= 1; t += 0.02) {
-                let x = lerp(x1, x2, t);
-                let y = lerp(y1, y2, t);
-                
-                // Complex wave patterns
-                let time = frameCount * 0.1;
-                let wave1 = sin(t * PI * 4 + time) * 3 * intensity;
-                let wave2 = cos(t * PI * 6 + time * 0.7) * 2 * intensity;
-                let wave3 = sin(t * PI * 8 + time * 1.2) * intensity;
-                let wave4 = cos(t * PI * 3 + time * 0.5) * 4 * intensity;
-                
-                // Add spiral effect
-                let spiral = sin(t * PI * 2) * pathOffset * intensity;
-                
-                vertex(
-                  x + wave1 + wave2 + wave3 + spiral, 
-                  y + wave2 + wave3 + wave4 + spiral
-                );
-              }
-              endShape();
-            }
-          }
+          // Geometric: Simple straight line (hands less complex)
+          stroke(255, 255, 255, 120 * intensity * handPointWeight);
+          strokeWeight(1.5 * intensity * handPointWeight);
+          line(x1, y1, x2, y2);
         }
       }
     }
@@ -714,15 +811,43 @@ function draw() {
 
     // Reset blend mode
     blendMode(BLEND);
+  }
+  
+  // Sound generation based on movement - ALWAYS run, even if no models detected
+  if (soundInitialized && soundActive) {
+    const currentTime = Tone.now();
+    const currentTimeMs = millis(); // Get time in milliseconds for interaction tracking
     
-    // Sound generation based on movement
-    if (soundInitialized && soundActive) {
-      const currentTime = Tone.now();
-      
-      // Track hand movements
-      let leftHandVelocity = 0;
-      let rightHandVelocity = 0;
-      
+    // Get landmarks (may be null if not detected) - check outside the visual block
+    const poseLandmarks = mediaPipe.poseLandmarks && mediaPipe.poseLandmarks[0] ? mediaPipe.poseLandmarks[0] : null;
+    const leftHand = mediaPipe.handLandmarks && mediaPipe.handLandmarks[0] ? mediaPipe.handLandmarks[0] : null;
+    const rightHand = mediaPipe.handLandmarks && mediaPipe.handLandmarks[1] ? mediaPipe.handLandmarks[1] : null;
+    const faceLandmarks = mediaPipe.faceLandmarks && mediaPipe.faceLandmarks[0] ? mediaPipe.faceLandmarks[0] : null;
+    
+    // Track hand movements
+    let leftHandVelocity = 0;
+    let rightHandVelocity = 0;
+    
+    // Check if any models are detected at all
+    let handsDetected = (leftHand && leftHand[8]) || (rightHand && rightHand[8]);
+    let bodyDetected = poseLandmarks && poseLandmarks.length > 0;
+    let faceDetected = faceLandmarks && faceLandmarks.length > 0;
+    let anyModelDetected = handsDetected || bodyDetected || faceDetected;
+    
+    // Check for any interaction (movement or proximity)
+    // Only count significant, intentional movement - not micro-movements
+    let hasInteraction = false;
+    
+    // If no models detected at all, immediately start fade (no interaction)
+    if (!anyModelDetected) {
+      hasInteraction = false;
+      proximityDuration = 0; // Reset proximity when nothing detected
+      // Don't update lastInteractionTime if models just disappeared
+      // This allows the existing timer to continue
+    } else if (!handsDetected) {
+      // If hands not detected but other models are, still no interaction
+      hasInteraction = false;
+    } else {
       // Calculate left hand movement
       if (leftHand && leftHand[8]) {
         let currentLeft = createVector(
@@ -732,8 +857,15 @@ function draw() {
         
         if (lastHandPositions[0]) {
           leftHandVelocity = currentLeft.dist(lastHandPositions[0]);
+          // Only count significant, intentional movement (higher threshold)
+          if (leftHandVelocity > 20) {
+            hasInteraction = true;
+          }
         }
         lastHandPositions[0] = currentLeft;
+      } else {
+        // Left hand disappeared - reset its position
+        lastHandPositions[0] = null;
       }
       
       // Calculate right hand movement
@@ -745,73 +877,156 @@ function draw() {
         
         if (lastHandPositions[1]) {
           rightHandVelocity = currentRight.dist(lastHandPositions[1]);
+          // Only count significant, intentional movement (higher threshold)
+          if (rightHandVelocity > 20) {
+            hasInteraction = true;
+          }
         }
         lastHandPositions[1] = currentRight;
+      } else {
+        // Right hand disappeared - reset its position
+        lastHandPositions[1] = null;
       }
+    }
+    
+    // Calculate proximity change BEFORE checking for interaction
+    // If no models detected, set proximity to 0
+    if (!anyModelDetected) {
+      proximityDuration = 0;
+    }
+    
+    let proximityChange = 0;
+    if (lastProximityValue !== undefined) {
+      proximityChange = abs(proximityDuration - lastProximityValue);
+    }
+    lastProximityValue = proximityDuration;
+    
+    // Only count proximity as interaction if it's rapidly changing (active movement)
+    // Threshold increased to avoid tiny fluctuations
+    if (proximityChange > 0.15) { // Only significant rapid changes count
+      hasInteraction = true;
+    }
+    
+    // Initialize lastInteractionTime if it's 0 (first time)
+    if (lastInteractionTime === 0) {
+      lastInteractionTime = currentTimeMs;
+    }
+    
+    // Update last interaction time and volume
+    if (hasInteraction) {
+      lastInteractionTime = currentTimeMs;
+      // Gradually increase volume when interaction detected
+      soundVolume = lerp(soundVolume, 1.0, 0.2);
+    } else {
+      // Always check time since last interaction
+      let timeSinceLastInteraction = currentTimeMs - lastInteractionTime;
       
-      // Update drone every few seconds
-      if (currentTime - lastDroneTime >= droneInterval) {
-        try {
-          // Release previous drone
-          droneSynth.releaseAll();
-          
-          // Generate new drone based on hand positions
-          let rootNote = 48; // C2
-          if (leftHand && leftHand[8]) {
-            rootNote = Math.floor(map(leftHand[8].y, 0, 1, 48, 60));
-          }
-          
-          // Create drone chord
-          droneChord = [
-            Tone.Frequency(rootNote, "midi").toNote(),
-            Tone.Frequency(rootNote + 7, "midi").toNote(),
-            Tone.Frequency(rootNote + 12, "midi").toNote(),
-            Tone.Frequency(rootNote + 16, "midi").toNote()
-          ];
-          
-          // Trigger drone with very low velocity for subtle effect
-          droneSynth.triggerAttack(droneChord, currentTime, 0.1);
-          lastDroneTime = currentTime;
-        } catch (error) {
-          console.error("Drone trigger error:", error);
+      // Check if 5 seconds have passed without interaction
+      if (timeSinceLastInteraction > NO_INTERACTION_TIMEOUT) {
+        // Fade volume to 0 - use gradual fade rate for smooth transition
+        soundVolume = lerp(soundVolume, 0.0, 0.05);
+        // Clamp volume to 0
+        if (soundVolume < 0.01) {
+          soundVolume = 0;
         }
       }
-      
-      // Modify existing triggers for more ambient quality
-      if (leftHandVelocity > 15 && 
-          currentTime - lastTriggerTimes.synth >= minTriggerIntervals.synth) {
-        try {
-          let note = Math.floor(map(leftHand[8].y, 0, 1, 60, 72));
-          synth.triggerAttackRelease(Tone.Frequency(note, "midi"), "2n", undefined, 0.3);
-          lastTriggerTimes.synth = currentTime;
-        } catch (error) {
-          console.error("Synth trigger error:", error);
+    }
+    
+    // Constrain volume between 0 and 1
+    soundVolume = constrain(soundVolume, 0, 1);
+    
+    // Apply volume to master gain node - use direct value assignment for better control
+    if (window.masterVolumeNode) {
+      window.masterVolumeNode.gain.value = soundVolume;
+    }
+    
+    // Debug: log volume every 30 frames (about twice per second)
+    if (frameCount % 30 === 0) {
+      let timeSince = Math.round((currentTimeMs - lastInteractionTime) / 1000);
+      let modelsStatus = anyModelDetected ? "YES" : "NO (nothing detected)";
+      let handsStatus = handsDetected ? "YES" : "NO";
+      console.log("Volume:", soundVolume.toFixed(2), 
+                 "| Models detected:", modelsStatus,
+                 "| Hands:", handsStatus,
+                 "| Interaction:", hasInteraction, 
+                 "| L_vel:", leftHandVelocity.toFixed(0),
+                 "| R_vel:", rightHandVelocity.toFixed(0),
+                 "| ProxΔ:", proximityChange.toFixed(3),
+                 "| Time since interaction:", timeSince + "s",
+                 "| Will fade:", (timeSince >= 5 ? "YES (fading now)" : "NO (wait " + (5 - timeSince) + "s more)"));
+    }
+    
+    // Update drone every few seconds - but only if volume is above 0
+    if (soundVolume > 0.01 && currentTime - lastDroneTime >= droneInterval) {
+      try {
+        // Release previous drone
+        droneSynth.releaseAll();
+        
+        // Generate new drone based on hand positions
+        let rootNote = 48; // C2
+        if (leftHand && leftHand[8]) {
+          rootNote = Math.floor(map(leftHand[8].y, 0, 1, 48, 60));
         }
+        
+        // Create drone chord
+        droneChord = [
+          Tone.Frequency(rootNote, "midi").toNote(),
+          Tone.Frequency(rootNote + 7, "midi").toNote(),
+          Tone.Frequency(rootNote + 12, "midi").toNote(),
+          Tone.Frequency(rootNote + 16, "midi").toNote()
+        ];
+        
+        // Trigger drone with very low velocity for subtle effect, multiplied by volume
+        droneSynth.triggerAttack(droneChord, currentTime, 0.1 * soundVolume);
+        lastDroneTime = currentTime;
+      } catch (error) {
+        console.error("Drone trigger error:", error);
       }
-      
-      // Bass notes triggered by proximity to body (chest/hips)
-      if (proximityDuration > 0.3 && 
-          currentTime - lastTriggerTimes.bass >= minTriggerIntervals.bass) {
-        try {
-          let bassNote = Math.floor(map(proximityDuration, 0.3, 1.0, 36, 48));
-          // Increased velocity from 0.4 to 0.7 for louder sound
-          bassline.triggerAttackRelease(Tone.Frequency(bassNote, "midi"), "1n", undefined, 0.7);
-          lastTriggerTimes.bass = currentTime;
-        } catch (error) {
-          console.error("Bass trigger error:", error);
-        }
+    }
+    
+    // Stop drone if volume is 0
+    if (soundVolume <= 0.01) {
+      try {
+        droneSynth.releaseAll();
+      } catch (error) {
+        // Ignore errors
       }
-      
-      // Make hi-hat softer and less frequent
-      if (frameCount % 16 === 0 && 
-          currentTime - lastTriggerTimes.hihat >= minTriggerIntervals.hihat) {
-        try {
-          let velocity = map(leftHandVelocity + rightHandVelocity, 0, 30, 0.05, 0.2);
-          hihat.triggerAttackRelease("16n", undefined, velocity);
-          lastTriggerTimes.hihat = currentTime;
-        } catch (error) {
-          console.error("Hi-hat trigger error:", error);
-        }
+    }
+    
+    // Modify existing triggers for more ambient quality
+    if (leftHand && leftHand[8] && leftHandVelocity > 15 && 
+        currentTime - lastTriggerTimes.synth >= minTriggerIntervals.synth) {
+      try {
+        let note = Math.floor(map(leftHand[8].y, 0, 1, 60, 72));
+        synth.triggerAttackRelease(Tone.Frequency(note, "midi"), "2n", undefined, 0.3 * soundVolume);
+        lastTriggerTimes.synth = currentTime;
+      } catch (error) {
+        console.error("Synth trigger error:", error);
+      }
+    }
+    
+    // Bass notes triggered by proximity to body (chest/hips)
+    if (proximityDuration > 0.3 && 
+        currentTime - lastTriggerTimes.bass >= minTriggerIntervals.bass) {
+      try {
+        let bassNote = Math.floor(map(proximityDuration, 0.3, 1.0, 36, 48));
+        // Increased velocity from 0.4 to 0.7 for louder sound, multiplied by volume
+        bassline.triggerAttackRelease(Tone.Frequency(bassNote, "midi"), "1n", undefined, 0.7 * soundVolume);
+        lastTriggerTimes.bass = currentTime;
+      } catch (error) {
+        console.error("Bass trigger error:", error);
+      }
+    }
+    
+    // Make hi-hat softer and less frequent
+    if (frameCount % 16 === 0 && 
+        currentTime - lastTriggerTimes.hihat >= minTriggerIntervals.hihat) {
+      try {
+        let velocity = map(leftHandVelocity + rightHandVelocity, 0, 30, 0.05, 0.2);
+        hihat.triggerAttackRelease("16n", undefined, velocity * soundVolume);
+        lastTriggerTimes.hihat = currentTime;
+      } catch (error) {
+        console.error("Hi-hat trigger error:", error);
       }
     }
   }
@@ -883,11 +1098,14 @@ function initSound() {
   try {
     Tone.start();
     
+    // Create master volume gain node for global volume control
+    const masterVolume = new Tone.Gain(1.0).toDestination();
+    
     // Create effects with longer decay
     reverb = new Tone.Reverb({
       decay: 4,
       wet: 0.4
-    }).toDestination();
+    }).connect(masterVolume);
     
     // Add delay effect
     const delay = new Tone.FeedbackDelay({
@@ -956,6 +1174,9 @@ function initSound() {
       }
     }).connect(reverb);
     
+    // Store master volume for control
+    window.masterVolumeNode = masterVolume;
+    
     // Initialize drone chord
     droneChord = ['C2', 'G2', 'C3', 'E3'];
     
@@ -986,6 +1207,12 @@ function keyPressed() {
       } catch (error) {
         console.error("Error stopping sounds:", error);
       }
+      soundVolume = 1.0; // Reset volume when toggling off
+      lastInteractionTime = millis(); // Reset interaction time
+    } else {
+      // Reset interaction time when sound is activated
+      lastInteractionTime = millis();
+      soundVolume = 1.0;
     }
   }
 }

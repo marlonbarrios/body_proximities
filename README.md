@@ -13,87 +13,112 @@ An interactive art piece that creates visual connections between hands, body, an
 
 This project creates a real-time interactive experience where:
 - Hand movements, body pose, and facial features are tracked simultaneously
-- Visual connections are drawn between hands and body parts (chest, hips, ankles)
-- Visual connections are drawn between hands and face points (eyes, mouth, nose)
+- **Geometric visual connections** (straight lines) are drawn from the **body center** to fingertips
+- Visual connections are drawn between hands and body parts, and hands to face points
 - Proximity to body and face generates ambient sounds and music
+- **Automatic volume fade** to silence after 5 seconds of no interaction
 - Everything responds fluidly to user interaction
 
 ## Visual Elements
 
+### Geometric Design
+- **Clean geometric lines** - All connections use straight lines instead of waves
+- **Body center as focal point** - Radial lines always extend from the body center
+- **Simplified hand tracking** - Only fingertips (5 points per hand) for cleaner visualization
+- **Varying line thickness** - Different thicknesses for different fingertips (thumb thickest, pinky thinnest)
+- **Always visible center lines** - Lines from body center to fingertips are always visible with varying opacity
+
 ### Body Pose Tracking
-- Tracks key body reference points: chest (midpoint of shoulders), hip center (midpoint of hips), and ankles
-- Chest calculated from shoulder landmarks (left: 11, right: 12)
-- Hip center calculated from hip landmarks (left: 23, right: 24)
-- Ankles tracked individually (left: 27, right: 28)
+- **Body center calculation** - Average of key body points (shoulders, hips, nose)
+- Tracks all 33 pose landmarks (head, shoulders, elbows, wrists, hips, knees, ankles, feet)
+- **Skeletal connections** - Geometric lines connect related body parts
+- Key body points: shoulders (11, 12), hips (23, 24), ankles (27, 28)
 
 ### Face Tracking
-- Tracks facial features including eyes, mouth, nose, and face outline
-- Subtle network connections between key facial points
-- Delicate animated lines with wave patterns
-- Soft particle effects at intersections
+- Tracks 100+ facial landmarks (eyes, mouth, nose, cheeks, jawline, eyebrows)
+- **Geometric network** - Straight line connections between facial points
+- Connections vary by face region (eyes, mouth, nose have different connection distances)
 
 ### Hand Connections
-- Glowing points at finger tips
-- Complex wave patterns between finger tips
-- Lines become more intense when fingers are closer
-- Interweaving paths with animated waves
-- Particle effects along the connections
+- **Fingertips only** - Simplified to 5 points per hand (thumb, index, middle, ring, pinky)
+- **Geometric lines** between fingertips within each hand
+- **Geometric lines** between corresponding fingertips across hands
+- Lines use different thicknesses based on finger type
+
+### Body Center to Hands
+- **Always visible radial lines** from body center to all fingertips
+- **Variable thickness**:
+  - Thumb: 2.5 (thickest)
+  - Index finger: 2.0
+  - Pinky: 1.5
+  - Other fingers: 1.8
+- Thickness varies based on distance and proximity
+- Opacity fades with distance but always visible (minimum 50)
 
 ### Hand-to-Body Connections
-- Dynamic lines connect body parts (chest, hips, ankles) to hands
+- Geometric straight lines connect fingertips to key body points (nose, shoulders, hips)
 - Connection intensity based on proximity
-- Complex wave patterns that respond to movement
-- Intensity increases as hands approach body parts
-- Multiple layers of visual effects based on proximity duration
+- Different maximum distances for different body parts:
+  - Head/face: 180px
+  - Shoulders/arms: 250px
+  - Hips: 280px
 
 ### Hand-to-Face Connections
-- Dynamic lines connect facial points (eyes, mouth, nose, outline) to finger tips and wrists
-- Connection intensity based on proximity
-- Complex wave patterns that respond to movement
-- Subtle particle systems along connections
+- Geometric straight lines connect fingertips to facial points
+- Different distances for different face regions:
+  - Eye region: 200px
+  - Mouth region: 220px
+  - Nose region: 240px
+  - Other regions: 260px
+
+### Face-to-Body Connections
+- Geometric lines connecting facial points to body points (head, shoulders)
+- Creates unified network between face and body
 
 ## Sound Generation
+
+### Automatic Volume Control
+- **5-Second Fade Out**: Sound automatically fades to silence after 5 seconds of no interaction
+- **No Interaction Detection**: Fades when:
+  - No hand movement (velocity < 20 pixels)
+  - No rapid proximity changes
+  - No models detected (hands, body, or face outside frame)
+- **Gradual Fade**: Smooth, progressive volume reduction (0.05 lerp rate)
+- **Auto Resume**: Volume gradually returns when interaction is detected
 
 ### Drone Synth
 - Base drone chord changes based on left hand height
 - Creates ambient foundation
 - Changes every 4 seconds
 - Uses sine waves for smooth texture
+- **Stops automatically** when volume fades to 0
 
 ### Main Synth (Left Hand)
-- Triggered by left hand movement
+- Triggered by left hand movement (velocity > 15)
 - Pitch determined by vertical position
-- Higher notes when hand is up
+- Higher notes when hand is up (60-72 MIDI range)
 - Lower notes when hand is down
 - Uses triangle waves for clarity
 
 ### Body & Face Proximity Interaction
-- Proximity to body parts (chest, hips, ankles) triggers visual and sonic responses
-- Proximity to face points (eyes, mouth, nose) opens additional interaction layers
+- Proximity to body center triggers visual and sonic responses
+- Proximity to face points opens additional interaction layers
 - Combined proximity calculation blends body and face interactions
-- Real-time mapping of proximity to sound:
-  ```javascript
-  // Body proximity to sound mapping
-  const bodyProximity = map(minDistanceToBody, 0, maxProximityDist, 1, 0);
-  const overallProximity = (bodyProximity + faceProximity) / 2;
-  const bassNote = map(proximityDuration, 0.3, 1.0, 36, 48);
-  ```
-- Intensity levels:
-  1. Far from body/face (>400px): Minimal effects
-  2. Moderate proximity (200-400px): Subtle connections and sounds
-  3. Close proximity (<200px): Maximum visual intensity and deeper bass tones
+- Real-time mapping of proximity to sound based on distance to body center
+- Intensity levels based on proximity duration
 
 ### Bass Synth (Proximity-Driven)
-- Triggered by proximity to body parts (chest, hips, ankles) or face
-- Combines both body and face proximity for richer interaction
+- Triggered by proximity to body center (proximity > 0.3)
 - Note pitch and intensity increase with proximity duration
+- MIDI range: 36-48 (low bass notes)
 - Creates immersive sonic feedback for body awareness
 
 ### Hi-hat (Overall Movement)
-- Rhythmic element based on hand movement
+- Rhythmic element based on hand movement velocity
 - Velocity controlled by movement speed
 - Uses pink noise for softer texture
-- Plays at regular intervals
+- Plays every 16 frames
+- Only triggers if there's significant movement (> 5 pixels)
 
 ## Sound Generation Technical Details
 
@@ -187,15 +212,34 @@ This project creates a real-time interactive experience where:
 
 ### MediaPipe Integration
 - **HandLandmarker**: Tracks 21 points per hand (2 hands)
-- **PoseLandmarker**: Tracks 33 body landmarks (chest, shoulders, hips, ankles, etc.)
-- **FaceLandmarker**: Tracks 468 facial landmarks (eyes, mouth, nose, face outline)
+  - **Simplified usage**: Only fingertips (5 points) used for connections
+- **PoseLandmarker**: Tracks all 33 body landmarks
+  - **Body center**: Calculated from shoulders, hips, and nose
+  - **Skeletal connections**: Geometric lines between related body parts
+- **FaceLandmarker**: Tracks 468 facial landmarks
+  - **Sampled usage**: 100+ key facial points for performance
 - All landmarkers run simultaneously for multi-modal tracking
 
 ### Proximity Calculation
-- Calculates minimum distance from hand finger tips to body reference points
-- Calculates minimum distance from hands to face points
-- Blends body and face proximity for unified interaction
+- **Body center based**: Calculates minimum distance from fingertips to body center
+- Calculates minimum distance from fingertips to face points
+- **Reduced complexity**: 50% fewer connections for better performance
+- **Different distance thresholds**: Varies by connection type (hand-to-body, hand-to-face, etc.)
 - Smooth interpolation of proximity values over time
+- **Interaction detection**: Only counts significant movement (>20 pixels) or rapid proximity changes
+
+### Performance Optimizations
+- **Reduced line count**: 50% fewer connections (sampled points)
+- **Simplified hand tracking**: Only fingertips, not all 21 points
+- **Limited face network**: Strategic sampling of facial points
+- **Key body points only**: Only connects to essential body landmarks
+- **Geometric rendering**: Straight lines instead of complex wave calculations
+
+## Controls
+
+- **Spacebar**: Toggle sound on/off
+- **Automatic**: Sound fades to silence after 5 seconds of no interaction
+- **Automatic**: Sound fades when no models are detected
 
 ## Performance & License
 
