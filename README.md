@@ -5,7 +5,6 @@ An interactive art piece that creates visual connections between hands, body, an
 
 🎮 [Try the Live App](https://marlonbarrios.github.io/body_proximities/)
 
-<img width="898" alt="Screenshot 2025-03-09 at 1 40 45 PM" src="https://github.com/user-attachments/assets/bda3d171-bca3-4daa-a5a6-bbc6ff09a77d" />
 
 🎥 [Watch the Video](https://youtu.be/1-0gC-jJMHA)
 
